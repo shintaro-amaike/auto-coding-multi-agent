@@ -1,6 +1,6 @@
 # Autonomous Multi-Agent System
 
-A sophisticated autonomous multi-agent system powered by Claude Code SDK, featuring a project manager and specialized coding agents that work cooperatively to execute complex development tasks.
+A sophisticated autonomous multi-agent system featuring a project manager and specialized coding agents that work cooperatively to execute complex development tasks. The system supports both full Claude Code SDK integration and fallback mode for environments where the SDK is not available.
 
 ## 🌟 Features
 
@@ -11,14 +11,16 @@ A sophisticated autonomous multi-agent system powered by Claude Code SDK, featur
 - **🛠️ Multi-language Support**: Frontend, backend, and DevOps specializations
 - **📝 Structured Tasks**: Flexible task creation with requirements and constraints
 - **🔧 Modular Architecture**: Clean, maintainable, and extensible codebase
+- **⚡ Fallback Mode**: Functions without Claude Code SDK with limited capabilities
+- **📓 Interactive Notebook**: Jupyter notebook for interactive development and testing
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.7+
-- Claude Code SDK
 - nest-asyncio (for Jupyter environments)
+- Claude Code SDK (optional - system works in fallback mode without it)
 
 ### Installation
 
@@ -33,24 +35,55 @@ cd auto-coding-multi-agent
 pip install -r requirements.txt
 ```
 
+3. (Optional) Install Claude Code SDK for full functionality:
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
 ### Basic Usage
 
+#### Interactive Jupyter Notebook
+
+The easiest way to get started is using the provided interactive notebook:
+
+1. Navigate to the agent directory:
+```bash
+cd src/agent
+```
+
+2. Start Jupyter Notebook:
+```bash
+jupyter notebook main.ipynb
+```
+
+3. Run the cells in order:
+   - Import libraries and initialize system
+   - Initialize the multi-agent system
+   - Execute the basic task execution test
+
 #### Python Script
+
 ```python
 import asyncio
 from src.agent import init_autonomous_system
 
 async def main():
-    # Initialize the system
+    # Initialize the system (works with or without Claude Code SDK)
     system = await init_autonomous_system()
     await system.start_system()
     
     # Submit a project task
-    task = "Create a simple Python web API with FastAPI and include tests"
+    task = """
+    Create a simple Python calculator application with the following features:
+    - Basic arithmetic operations (add, subtract, multiply, divide)
+    - Command-line interface for user input
+    - Error handling for division by zero
+    - Clean, well-documented code following PEP 8 standards
+    """
     await system.submit_project_task(task)
     
     # Wait for completion
-    result = await system.wait_for_completion(timeout_minutes=30)
+    result = await system.wait_for_completion(timeout_minutes=15)
     
     # Display results
     system.display_system_dashboard()
@@ -62,23 +95,6 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-#### Jupyter Notebook
-```python
-# Use the provided main.ipynb for interactive development
-from multiagent_system import (
-    init_autonomous_system, 
-    AutonomousMultiAgentSystem,
-    quick_task_examples
-)
-
-# Initialize and run tasks interactively
-system = init_jupyter_system()
-await system.initialize_system()
-
-# Execute tasks
-result = run_autonomous_task(system, "Your project description", timeout_minutes=60)
-```
-
 ## 🏗️ Architecture
 
 ### System Components
@@ -88,14 +104,26 @@ The system is built with a modular architecture consisting of specialized compon
 ```
 src/agent/
 ├── models.py                  # Data models and enums
-├── claude_sdk_interface.py    # Claude SDK integration
+├── claude_sdk_interface.py    # Claude SDK integration with fallback
 ├── base_agent.py             # Base agent functionality
 ├── specialized_agents.py     # Agent implementations
 ├── system_coordinator.py     # Multi-agent coordination
 ├── utils.py                  # Utilities and helpers
 ├── multiagent_system.py      # Main entry point
-├── main.ipynb               # Interactive notebook
+├── main.ipynb               # Interactive notebook for testing
+├── test_modular_structure.py # System tests
 └── __init__.py              # Package initialization
+```
+
+### Output Directory
+
+All generated files and test results are saved to the `output/` directory:
+
+```
+output/
+├── main.py                   # Generated programs
+├── test_results.json         # Test execution results
+└── debug_log.txt            # Debug information (when needed)
 ```
 
 ### Agent Types
@@ -135,104 +163,51 @@ src/agent/
   - Monitoring and logging
   - Security configuration
 
+## 🔧 System Modes
+
+### Full Mode (With Claude Code SDK)
+
+When Claude Code SDK is available, the system operates with full capabilities:
+- Advanced task analysis and code generation
+- Real-time Claude Code integration
+- Full tool access for agents
+- Complex project handling
+
+### Fallback Mode (Without Claude Code SDK)
+
+When Claude Code SDK is not available, the system provides:
+- Basic task execution simulation
+- File generation for common tasks (Hello World programs, etc.)
+- System monitoring and coordination
+- Limited but functional development assistance
+
 ## 📝 Usage Examples
+
+### Basic Task Execution Test
+
+The system includes a built-in test for creating a simple Hello World program:
+
+```python
+# Run the test notebook
+# This will create:
+# - output/main.py: Generated Hello World program
+# - output/test_results.json: Test execution results
+```
 
 ### Structured Task Creation
 
 ```python
-from src.agent import TaskBuilder
+# Create a more complex task
+task_description = """
+Create a web-based todo application with the following features:
+- User interface with HTML/CSS/JavaScript
+- Add, edit, delete todo items
+- Mark items as complete
+- Local storage for persistence
+- Responsive design for mobile devices
+"""
 
-# Create a structured project task
-task = (TaskBuilder()
-    .set_objective("Build a full-stack e-commerce application")
-    .add_requirements([
-        "User authentication system",
-        "Product catalog with search",
-        "Shopping cart functionality",
-        "Payment processing integration"
-    ])
-    .add_constraints([
-        "Use React for frontend",
-        "Use Python FastAPI for backend",
-        "Include comprehensive tests",
-        "Complete within 2 hours"
-    ])
-    .add_deliverables([
-        "Working web application",
-        "API documentation",
-        "Test suite",
-        "Deployment guide"
-    ])
-    .build())
-
-# Execute the structured task
-await system.submit_project_task(task)
-```
-
-### Real-time Monitoring
-
-```python
-from src.agent import SystemMonitor
-
-# Create system monitor
-monitor = SystemMonitor(system)
-
-# Collect metrics
-metrics = monitor.collect_metrics()
-print(f"System completion rate: {metrics['performance_metrics']['overall_completion_rate']}%")
-
-# Get performance history
-history = monitor.get_metrics_history()
-average_performance = monitor.get_average_performance()
-```
-
-### Multi-Phase Projects
-
-```python
-from src.agent import ProgressTracker
-
-# Track complex multi-phase projects
-tracker = ProgressTracker()
-tracker.add_phase("Design & Planning", "System architecture and requirements", 30)
-tracker.add_phase("Backend Development", "API and database implementation", 60)
-tracker.add_phase("Frontend Development", "User interface implementation", 45)
-tracker.add_phase("Testing & Deployment", "Quality assurance and deployment", 30)
-
-# Start tracking
-tracker.start_tracking()
-
-# Execute each phase and update progress
-for phase_index, phase in enumerate(phases):
-    tracker.start_phase(phase_index)
-    result = await execute_phase(phase)
-    tracker.complete_phase(phase_index)
-
-# Get final summary
-summary = tracker.get_progress_summary()
-```
-
-## 🔧 Configuration
-
-### Agent Tool Configuration
-
-Each agent type has access to specific tools:
-
-- **Project Manager**: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch
-- **Coding Agents**: Read, Write, Edit, Bash, Glob, Grep, MultiEdit, NotebookEdit  
-- **DevOps Agent**: Read, Write, Edit, Bash, Glob, Grep, TodoWrite
-
-### System Settings
-
-```python
-from src.agent import setup_logging, validate_system_requirements
-
-# Configure logging
-setup_logging(level="INFO")
-
-# Validate requirements
-requirements = validate_system_requirements()
-if not all(requirements.values()):
-    print("Missing requirements detected")
+await system.submit_project_task(task_description)
 ```
 
 ## 📊 Monitoring and Metrics
@@ -246,7 +221,7 @@ The system provides real-time monitoring through an integrated dashboard:
 system.display_system_dashboard()
 
 # Get detailed agent information
-agent_details = system.get_agent_details("frontend_coder")
+agent_details = system.get_agent_details("backend_coder")
 
 # View inter-agent communication
 messages = system.get_message_log(limit=20)
@@ -265,7 +240,16 @@ performance = system.get_performance_metrics()
 
 ## 🧪 Testing
 
-### Run Comprehensive Tests
+### Interactive Testing
+
+Use the Jupyter notebook for interactive testing:
+
+```bash
+cd src/agent
+jupyter notebook main.ipynb
+```
+
+### Command Line Testing
 
 ```bash
 # Test modular structure
@@ -273,19 +257,20 @@ cd src/agent
 python test_modular_structure.py
 
 # Test individual components
-python -c "from multiagent_system import quick_task_examples; print('✅ Import test passed')"
+python -c "from multiagent_system import init_autonomous_system; print('✅ Import test passed')"
 ```
 
 ### Validation
 
 ```python
-from src.agent import print_system_requirements
+from src.agent import validate_system_requirements, print_system_requirements
 
 # Check system requirements
 print_system_requirements()
 
 # Validate all dependencies
 requirements = validate_system_requirements()
+print(f"System ready: {all(requirements.values())}")
 ```
 
 ## 🔍 Troubleshooting
@@ -302,15 +287,21 @@ requirements = validate_system_requirements()
 
 2. **Missing Dependencies**
    ```bash
-   pip install claude-code-sdk nest-asyncio
+   pip install nest-asyncio
+   # Claude Code SDK is optional
+   npm install -g @anthropic-ai/claude-code
    ```
 
 3. **Jupyter Environment Issues**
    ```python
-   # Apply nested asyncio support
-   from src.agent import apply_nested_asyncio
-   apply_nested_asyncio()
+   # The system automatically applies nested asyncio support
+   # If issues persist, restart the Jupyter kernel
    ```
+
+4. **No Output Files Generated**
+   - Check the `output/` directory in the project root
+   - Ensure the system is running in the correct directory
+   - For fallback mode, only basic tasks like Hello World are supported
 
 ### Debug Mode
 
@@ -325,6 +316,37 @@ from src.agent import get_system_info
 info = get_system_info()
 print(info)
 ```
+
+### Fallback Mode Limitations
+
+When running without Claude Code SDK:
+- Limited to basic code generation (Hello World, simple programs)
+- Advanced project analysis may not work
+- Complex multi-file projects are not supported
+- System provides warnings about limited functionality
+
+## 🎯 Current Status
+
+### ✅ Implemented Features
+- Modular multi-agent architecture
+- Project manager with task delegation
+- Specialized coding agents (Frontend, Backend, DevOps)
+- System coordination and monitoring
+- Interactive Jupyter notebook interface
+- Fallback mode for environments without Claude Code SDK
+- Basic file generation capabilities
+- Test execution and results tracking
+
+### 🔄 In Progress
+- Enhanced code generation for complex projects
+- Full Claude Code SDK integration testing
+- Advanced project templates and examples
+
+### 📋 Planned Features
+- Web-based dashboard interface
+- Template-based project generation
+- Integration with version control systems
+- Enhanced monitoring and analytics
 
 ## 🤝 Contributing
 
@@ -353,13 +375,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Built with [Claude Code SDK](https://claude.ai/code)
+- Built with [Claude Code SDK](https://claude.ai/code) (optional dependency)
 - Inspired by multi-agent system research
 - Thanks to the open-source community for tools and libraries
 
 ## 🔗 Related Projects
 
-- [Claude Code SDK Documentation](https://docs.anthropic.com/claude/docs)
+- [Claude Code Documentation](https://docs.anthropic.com/claude/docs)
 - [Multi-Agent Systems Research](https://github.com/topics/multi-agent-systems)
 - [Autonomous Software Development](https://github.com/topics/autonomous-development)
 
@@ -367,3 +389,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **⚡ Ready to revolutionize your development workflow with autonomous agents? Get started today!**
 
+**Note**: This system is designed to work both with and without Claude Code SDK. In fallback mode, it provides limited but functional development assistance for learning and experimentation purposes.
