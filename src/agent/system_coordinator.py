@@ -35,7 +35,10 @@ class AutonomousMultiAgentSystem:
     def __init__(self):
         """Initialize the multi-agent system."""
         if not is_sdk_available():
-            raise ImportError("Claude Code SDK package is required: pip install claude-code-sdk")
+            logging.warning("⚠️ Claude Code SDK not available. Running in fallback mode.")
+            print("⚠️ Claude Code SDK not available. System will run in fallback mode with limited functionality.")
+        else:
+            logging.info("✅ Claude Code SDK available. Full functionality enabled.")
             
         # Initialize agents
         self.project_manager = ProjectManagerAgent()
@@ -301,6 +304,19 @@ class AutonomousMultiAgentSystem:
         else:
             logging.warning(f"⚠️ Cannot remove agent {agent_id}")
             return False
+    
+    def get_active_agent_count(self) -> int:
+        """Get the number of active agents in the system."""
+        active_count = 0
+        for agent in self.all_agents.values():
+            if hasattr(agent, 'is_running') and agent.is_running:
+                active_count += 1
+        return active_count
+    
+    @property
+    def agents(self) -> Dict[str, Any]:
+        """Property to access all agents (for compatibility)."""
+        return self.all_agents
     
     def get_performance_metrics(self) -> Dict[str, Any]:
         """Get system performance metrics."""

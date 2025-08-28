@@ -67,7 +67,9 @@ class AutonomousAgent:
     async def start(self):
         """Start the agent."""
         if not is_sdk_available():
-            raise ImportError("Claude Code SDK is required")
+            logging.warning(f"{self.agent_id} starting in fallback mode (Claude Code SDK not available)")
+        else:
+            logging.info(f"{self.agent_id} starting with Claude Code SDK")
             
         self.is_running = True
         
