@@ -100,7 +100,23 @@ class AutonomousMultiAgentSystem:
                 # Process tasks from global task queue
                 if not self.global_task_queue.empty():
                     main_task = self.global_task_queue.get_nowait()
-                    await self._process_main_task(main_task)
+                    logging.info(f"🎯 System monitoring loop processing task: {main_task[:50]}...")
+                    try:
+                        await self._process_main_task(main_task)
+                    except Exception as e:
+                        logging.error(f"Task processing failed in monitoring loop: {e}")
+                        # Add failed project record
+                        failed_project = {
+                            "task_description": main_task,
+                            "start_time": datetime.now().isoformat(),
+                            "end_time": datetime.now().isoformat(),
+                            "status": "failed",
+                            "error": f"Monitoring loop error: {e}",
+                            "subtasks": [],
+                            "results": [],
+                            "created_files": []
+                        }
+                        self.completed_projects.append(failed_project)
                 
                 # Monitoring interval
                 await asyncio.sleep(5.0)
@@ -113,17 +129,44 @@ class AutonomousMultiAgentSystem:
         """Process main task."""
         logging.info(f"🎯 Processing new project task: {main_task[:100]}...")
         
+        project_info = {
+            "task_description": main_task,
+            "start_time": datetime.now().isoformat(),
+            "status": "in_progress",
+            "subtasks": [],
+            "results": [],
+            "created_files": []
+        }
+        
         # Have project manager analyze the task
-        subtasks = await self.project_manager.analyze_and_delegate_task(main_task)
+        try:
+            subtasks = await self.project_manager.analyze_and_delegate_task(main_task)
+        except Exception as e:
+            logging.error(f"Project manager error: {e}")
+            subtasks = []
         
         if not subtasks:
             logging.warning("Task analysis failed")
+            project_info["status"] = "failed"
+            project_info["error"] = "Task analysis failed"
+            self.completed_projects.append(project_info)
             return
         
         # Assign subtasks to coding agents
+        assigned_agents = []
+        
         for subtask in subtasks:
+            project_info["subtasks"].append({
+                "id": subtask.id,
+                "description": subtask.description,
+                "assigned_to": subtask.assigned_to,
+                "priority": subtask.priority
+            })
+            
             if subtask.assigned_to in self.coding_agents:
                 agent = self.coding_agents[subtask.assigned_to]
+                assigned_agents.append((agent, subtask.id))
+                
                 message = AgentMessage(
                     sender_id="project_manager",
                     receiver_id=subtask.assigned_to,
@@ -138,6 +181,62 @@ class AutonomousMultiAgentSystem:
                 await agent.send_message_to_agent(message)
                 self.message_log.append(message)
                 logging.info(f"📨 Assigned task to {subtask.assigned_to}: {subtask.description[:50]}...")
+        
+        # Wait for all agents to complete their tasks
+        await self._wait_for_agents_completion(assigned_agents, project_info)
+        
+        # Determine project status based on results
+        has_results = len(project_info["results"]) > 0
+        has_files = len(project_info["created_files"]) > 0
+        has_errors = any("error" in result for result in project_info["results"] if isinstance(result, dict))
+        
+        if has_results and (has_files or not has_errors):
+            project_info["status"] = "completed"
+            logging.info(f"✅ Project completed successfully with {len(project_info['created_files'])} files created")
+        else:
+            project_info["status"] = "failed"
+            project_info["error"] = "No successful results or files created"
+            logging.warning(f"⚠️ Project marked as failed - Results: {has_results}, Files: {has_files}, Errors: {has_errors}")
+        
+        project_info["end_time"] = datetime.now().isoformat()
+        self.completed_projects.append(project_info)
+    
+    async def _wait_for_agents_completion(self, assigned_agents: List[tuple], project_info: Dict[str, Any]):
+        """Wait for all assigned agents to complete their tasks."""
+        max_wait_time = 300  # 5 minutes maximum
+        check_interval = 2   # Check every 2 seconds
+        elapsed_time = 0
+        
+        while elapsed_time < max_wait_time:
+            all_completed = True
+            
+            for agent, task_id in assigned_agents:
+                # Check if agent has completed tasks (no current tasks)
+                if len(agent.current_tasks) > 0:
+                    all_completed = False
+                    break
+            
+            if all_completed:
+                logging.info("✅ All agents have completed their tasks!")
+                
+                # Collect results from all agents
+                for agent, task_id in assigned_agents:
+                    if hasattr(agent, 'recent_task_results') and agent.recent_task_results:
+                        for result in agent.recent_task_results:
+                            if isinstance(result, dict):
+                                project_info["results"].append(result)
+                                # Collect created files
+                                if "created_files" in result and result["created_files"]:
+                                    project_info["created_files"].extend(result["created_files"])
+                                logging.info(f"📊 Collected result from {agent.agent_id}: {len(result.get('created_files', []))} files")
+                
+                break
+            
+            await asyncio.sleep(check_interval)
+            elapsed_time += check_interval
+        
+        if elapsed_time >= max_wait_time:
+            logging.warning("⚠️ Timeout reached, proceeding with current results")
     
     async def submit_project_task(self, task_description: str):
         """Submit project task to the system."""
@@ -277,7 +376,20 @@ class AutonomousMultiAgentSystem:
             print(f"{status_icon} {agent_id} ({agent_status['role']})")
             print(f"    ✅ Completed: {agent_status['completed_tasks']}, ⏳ Active: {agent_status['current_tasks_count']}, 📨 Pending: {agent_status['pending_messages']}")
             if agent_status["recent_results"]:
-                print(f"    📈 Recent Results: {', '.join(agent_status['recent_results'])}")
+                # Format recent results for display
+                results_summary = []
+                for result in agent_status["recent_results"]:
+                    if isinstance(result, dict):
+                        if "created_files" in result:
+                            file_count = len(result["created_files"])
+                            results_summary.append(f"{file_count} files")
+                        elif "error" in result:
+                            results_summary.append("error")
+                        else:
+                            results_summary.append("completed")
+                    else:
+                        results_summary.append(str(result))
+                print(f"    📈 Recent Results: {', '.join(results_summary)}")
         
         print("\n" + "="*60)
         print(f"📅 Last Updated: {status.timestamp}")
@@ -344,3 +456,21 @@ class AutonomousMultiAgentSystem:
             "system_uptime": self.is_running,
             "message_throughput": len(self.message_log)
         }
+    
+    def get_project_results(self) -> List[Dict[str, Any]]:
+        """Get completed project results."""
+        return self.completed_projects
+    
+    def get_latest_project_result(self) -> Dict[str, Any]:
+        """Get the latest completed project result."""
+        if self.completed_projects:
+            return self.completed_projects[-1]
+        return {}
+    
+    def get_created_files(self) -> List[str]:
+        """Get all files created by the system."""
+        all_files = []
+        for project in self.completed_projects:
+            if 'created_files' in project:
+                all_files.extend(project['created_files'])
+        return all_files

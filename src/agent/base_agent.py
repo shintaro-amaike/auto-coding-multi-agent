@@ -46,7 +46,10 @@ class AutonomousAgent:
     
     def _get_agent_options(self):
         """Configure options based on agent role."""
-        from .models import AgentTools
+        try:
+            from .models import AgentTools
+        except ImportError:
+            from models import AgentTools
         
         base_tools = AgentTools.BASE_TOOLS
         
@@ -110,7 +113,10 @@ class AutonomousAgent:
     
     async def _process_agent_message(self, message: AgentMessage):
         """Process message from another agent."""
-        from .models import MessageType
+        try:
+            from .models import MessageType
+        except ImportError:
+            from models import MessageType
         
         if message.message_type == MessageType.TASK_REQUEST:
             task = Task(
@@ -181,6 +187,13 @@ Please report the execution results in detail.
     
     def get_status(self) -> AgentStatus:
         """Get current agent status."""
+        # Get recent results from different sources depending on agent type
+        recent_results = []
+        if hasattr(self, 'recent_task_results') and self.recent_task_results:
+            recent_results = self.recent_task_results[-5:]  # Get last 5 results
+        else:
+            recent_results = list(self.task_results.keys())[-5:] if self.task_results else []
+        
         return AgentStatus(
             agent_id=self.agent_id,
             role=self.role.value,
@@ -188,7 +201,7 @@ Please report the execution results in detail.
             completed_tasks=self.completed_tasks,
             current_tasks_count=len(self.current_tasks),
             pending_messages=self.message_queue.qsize(),
-            recent_results=list(self.task_results.keys())[-5:] if self.task_results else [],
+            recent_results=recent_results,
             message_history_length=len(self.conversation_history)
         )
     
