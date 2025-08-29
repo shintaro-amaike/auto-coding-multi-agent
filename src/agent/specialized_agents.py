@@ -12,6 +12,7 @@ This module contains the specific agent classes for different roles:
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Dict, List, Any
 
@@ -44,75 +45,148 @@ class ProjectManagerAgent(AutonomousAgent):
     
     async def analyze_and_delegate_task(self, main_task: str) -> List[Task]:
         """Analyze main task and split into subtasks."""
-        analysis_prompt = f"""
-Analyze the following project task and split it into subtasks to be assigned to three coding agents: frontend_coder, backend_coder, and devops_coder.
+        logging.info(f"ProjectManager analyzing task: {main_task}")
+        
+        try:
+            # First, check if Claude SDK is available
+            from claude_sdk_interface import is_sdk_available
+            if not is_sdk_available():
+                logging.error("Claude Code SDK not available for task analysis")
+                # Create a simple fallback task assignment
+                return self._create_fallback_task(main_task)
+            
+            analysis_prompt = f"""
+You are a project manager for a software development team. Analyze the following project task and split it into specific, actionable subtasks to be assigned to coding agents.
 
 Main task: {main_task}
 
-Please output in the following JSON format:
+Please output ONLY a JSON response in the following format:
 {{
   "subtasks": [
     {{
       "id": "task_1",
-      "description": "Task description",
+      "description": "Specific task description with clear deliverables",
       "assigned_to": "frontend_coder|backend_coder|devops_coder",
       "priority": 1,
       "estimated_duration": 30,
-      "tools_needed": ["Read", "Write", "Edit"],
+      "tools_needed": ["Write", "Edit"],
       "dependencies": []
     }}
   ]
 }}
+
+Guidelines:
+- Create specific, actionable tasks with clear deliverables  
+- Assign tasks to the most appropriate agent type
+- For Python/Flask/API tasks: assign to backend_coder
+- For React/Vue/HTML/CSS tasks: assign to frontend_coder
+- For Docker/CI/CD/deployment tasks: assign to devops_coder
+- Include tools needed: Write, Edit, Read, Bash, Glob, Grep
+- Ensure tasks create actual files in the output directory
 """
-        
-        response_parts = []
-        async for msg in execute_claude_query(analysis_prompt, self.options):
-            if isinstance(msg, AssistantMessage):
-                for block in msg.content:
-                    if isinstance(block, TextBlock):
-                        response_parts.append(block.text)
-            elif isinstance(msg, ResultMessage):
-                break
-        
-        # Parse JSON to create tasks
-        tasks = []
-        try:
+            
+            response_parts = []
+            logging.info("Sending task analysis request to Claude Code SDK...")
+            
+            try:
+                async for msg in execute_claude_query(analysis_prompt, self.options):
+                    if isinstance(msg, AssistantMessage):
+                        for block in msg.content:
+                            if isinstance(block, TextBlock):
+                                response_parts.append(block.text)
+                                logging.debug(f"Received response block: {block.text[:100]}...")
+                    elif isinstance(msg, ResultMessage):
+                        logging.info("Received ResultMessage, ending query")
+                        break
+            except Exception as e:
+                logging.error(f"Claude Code SDK query failed: {e}")
+                return self._create_fallback_task(main_task)
+            
+            # Parse response and create tasks
             response_text = "\n".join(response_parts)
-            # Extract JSON portion
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            if json_start != -1 and json_end != -1:
-                json_text = response_text[json_start:json_end]
+            logging.info(f"Full response text: {response_text}")
+            
+            if not response_text.strip():
+                logging.error("Empty response from Claude Code SDK")
+                return self._create_fallback_task(main_task)
+            
+            # Try to extract JSON - look for the most complete JSON block
+            import re
+            json_matches = re.findall(r'\{[^}]*"subtasks"[^}]*\[.*?\]\s*\}', response_text, re.DOTALL)
+            
+            if not json_matches:
+                # Fallback: simple JSON extraction
+                json_start = response_text.find('{')
+                json_end = response_text.rfind('}') + 1
+                if json_start != -1 and json_end > json_start:
+                    json_text = response_text[json_start:json_end]
+                else:
+                    logging.error("No JSON found in response")
+                    return self._create_fallback_task(main_task)
+            else:
+                json_text = json_matches[0]
+            
+            logging.info(f"Extracted JSON: {json_text}")
+            
+            try:
                 task_data = json.loads(json_text)
+                tasks = []
                 
                 for subtask in task_data.get("subtasks", []):
                     task = Task(
-                        id=subtask["id"],
-                        description=subtask["description"],
-                        assigned_to=subtask["assigned_to"],
+                        id=subtask.get("id", f"task_{len(tasks)+1}"),
+                        description=subtask.get("description", ""),
+                        assigned_to=subtask.get("assigned_to", "backend_coder"),
                         priority=subtask.get("priority", 1),
                         estimated_duration=subtask.get("estimated_duration", 30),
-                        tools_needed=subtask.get("tools_needed", []),
+                        tools_needed=subtask.get("tools_needed", ["Write", "Edit"]),
                         dependencies=subtask.get("dependencies", [])
                     )
                     tasks.append(task)
+                    logging.info(f"Created subtask: {task.id} -> {task.assigned_to}: {task.description[:50]}...")
+                
+                if not tasks:
+                    logging.warning("No subtasks created from response, using fallback")
+                    return self._create_fallback_task(main_task)
+                    
+                return tasks
+                    
+            except json.JSONDecodeError as e:
+                logging.error(f"JSON parsing failed: {e}")
+                logging.error(f"Attempted to parse: {json_text}")
+                return self._create_fallback_task(main_task)
+                
         except Exception as e:
-            logging.error(f"Task analysis error: {e}")
-            # Fallback: create a simple task for Hello World program
-            if "hello world" in main_task.lower():
-                fallback_task = Task(
-                    id="hello_world_task",
-                    description=f"Create Hello World Python program: {main_task}",
-                    assigned_to="backend_coder",
-                    priority=1,
-                    estimated_duration=15,
-                    tools_needed=["Write", "Edit"],
-                    dependencies=[]
-                )
-                tasks.append(fallback_task)
-                logging.info("Created fallback Hello World task")
+            logging.error(f"Task analysis failed with exception: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._create_fallback_task(main_task)
+    
+    def _create_fallback_task(self, main_task: str) -> List[Task]:
+        """Create a simple fallback task when analysis fails."""
+        logging.info("Creating fallback task assignment")
         
-        return tasks
+        # Determine the most appropriate agent based on task content
+        task_lower = main_task.lower()
+        if any(word in task_lower for word in ['react', 'vue', 'html', 'css', 'frontend', 'ui', 'component']):
+            assigned_to = "frontend_coder"
+        elif any(word in task_lower for word in ['docker', 'deploy', 'ci', 'cd', 'kubernetes', 'devops']):
+            assigned_to = "devops_coder" 
+        else:
+            assigned_to = "backend_coder"
+        
+        fallback_task = Task(
+            id="fallback_task_1",
+            description=main_task,
+            assigned_to=assigned_to,
+            priority=1,
+            estimated_duration=30,
+            tools_needed=["Write", "Edit", "Read"],
+            dependencies=[]
+        )
+        
+        logging.info(f"Created fallback task assigned to {assigned_to}")
+        return [fallback_task]
     
     def get_project_status(self) -> Dict[str, Any]:
         """Get current project status."""
@@ -152,6 +226,20 @@ class CodingAgent(AutonomousAgent):
         self.specialization = specialization
         self.current_project_path = "/workspace"  # Default working directory
         
+        # Set output directory based on current working directory
+        current_dir = os.getcwd()
+        if 'src/agent' in current_dir:
+            self.output_directory = "../../output"  # From src/agent
+        else:
+            # Find the project root and set output directory
+            project_root = current_dir
+            while not os.path.exists(os.path.join(project_root, 'src')):
+                parent = os.path.dirname(project_root)
+                if parent == project_root:  # Reached filesystem root
+                    break
+                project_root = parent
+            self.output_directory = os.path.join(project_root, "output")
+        
     def set_project_path(self, path: str):
         """Set the current project working directory."""
         self.current_project_path = path
@@ -166,65 +254,164 @@ class CodingAgent(AutonomousAgent):
         }
     
     async def execute_coding_task(self, task_description: str) -> Dict[str, Any]:
-        """Execute a coding task and generate files."""
-        coding_prompt = f"""
-You are an expert {self.specialization} developer. 
-Execute the following coding task:
+        """Execute a coding task using Claude Code SDK."""
+        logging.info(f"{self.agent_id} executing coding task: {task_description}")
+        
+        try:
+            from claude_sdk_interface import is_sdk_available
+            if not is_sdk_available():
+                logging.error("Claude Code SDK not available for task execution")
+                return {
+                    "task_description": task_description,
+                    "agent_id": self.agent_id,
+                    "specialization": self.specialization,
+                    "error": "Claude Code SDK not available",
+                    "created_files": [],
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Get list of files before execution
+            output_dir = "../../output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                logging.info(f"Created output directory: {output_dir}")
+            
+            files_before = set()
+            try:
+                files_before = set(os.listdir(output_dir))
+            except Exception as e:
+                logging.warning(f"Could not list output directory: {e}")
+            
+            coding_prompt = f"""
+You are an expert {self.specialization} developer. Execute the following coding task:
 
 {task_description}
 
-Please generate the necessary code files and explain what you've created.
-If this involves creating a Python program, make sure to actually write the files to the output directory.
-Focus on creating functional, well-documented code.
+IMPORTANT REQUIREMENTS:
+1. You MUST use the Write tool to create files in the ../../output directory
+2. Create functional, well-documented code with appropriate file extensions
+3. For Python files: use .py extension
+4. For web files: use .html, .css, .js extensions
+5. For config files: use appropriate extensions (.json, .txt, .yml, etc.)
+6. Test your code if possible using available tools
+
+Example file paths:
+- ../../output/calculator.py
+- ../../output/app.py
+- ../../output/Counter.js
+- ../../output/Counter.css
+- ../../output/package.json
+- ../../output/requirements.txt
+
+Focus on creating high-quality, production-ready code that fulfills the requirements.
+REMEMBER: Use the Write tool to actually create the files!
 """
-        
-        response_parts = []
-        async for msg in execute_claude_query(coding_prompt, self.options):
-            if isinstance(msg, AssistantMessage):
-                for block in msg.content:
-                    if isinstance(block, TextBlock):
-                        response_parts.append(block.text)
-            elif isinstance(msg, ResultMessage):
-                break
-        
-        result = {
-            "task_description": task_description,
-            "agent_id": self.agent_id,
-            "specialization": self.specialization,
-            "response": "\n".join(response_parts),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        # Mark task as completed
-        self.completed_tasks += 1
-        
-        return result
+            
+            response_parts = []
+            logging.info("Sending coding task to Claude Code SDK...")
+            
+            try:
+                async for msg in execute_claude_query(coding_prompt, self.options):
+                    if isinstance(msg, AssistantMessage):
+                        for block in msg.content:
+                            if isinstance(block, TextBlock):
+                                response_parts.append(block.text)
+                                logging.debug(f"Received response: {block.text[:100]}...")
+                    elif isinstance(msg, ResultMessage):
+                        logging.info("Received ResultMessage, task execution complete")
+                        break
+            except Exception as e:
+                logging.error(f"Claude Code SDK execution failed: {e}")
+                return {
+                    "task_description": task_description,
+                    "agent_id": self.agent_id,
+                    "specialization": self.specialization,
+                    "error": f"SDK execution failed: {e}",
+                    "created_files": [],
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            response_text = "\n".join(response_parts)
+            
+            # Check for created files
+            created_files = []
+            try:
+                files_after = set(os.listdir(output_dir))
+                created_files = list(files_after - files_before)
+                logging.info(f"Files created: {created_files}")
+            except Exception as e:
+                logging.warning(f"Could not check created files: {e}")
+            
+            result = {
+                "task_description": task_description,
+                "agent_id": self.agent_id,
+                "specialization": self.specialization,
+                "response": response_text,
+                "created_files": created_files,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            if not created_files:
+                logging.warning(f"No files were created by {self.agent_id} for task")
+                result["warning"] = "No files were created - Claude Code SDK may not have executed tools"
+            
+            # Mark task as completed
+            self.completed_tasks += 1
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"Coding task execution failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "task_description": task_description,
+                "agent_id": self.agent_id,
+                "specialization": self.specialization,
+                "error": str(e),
+                "created_files": [],
+                "timestamp": datetime.now().isoformat()
+            }
     
     async def _execute_task(self, task):
         """Override base class to execute coding-specific tasks."""
         try:
-            from .models import TaskStatus
+            try:
+                from .models import TaskStatus
+            except ImportError:
+                from models import TaskStatus
             
             task.status = TaskStatus.IN_PROGRESS
             logging.info(f"{self.agent_id} starting coding task: {task.description[:50]}...")
             
-            # Execute the coding task
+            # Execute the coding task and create actual files
             result = await self.execute_coding_task(task.description)
             
-            task.result = result.get("response", "Task completed")
+            # Store the result with created files information
+            task.result = result
             task.status = TaskStatus.COMPLETED
             task.completed_at = datetime.now()
             self.completed_tasks += 1
             
-            # Remove from task list
-            self.current_tasks.remove(task)
+            # Store result in agent's recent results for system coordinator to access
+            if not hasattr(self, 'recent_task_results'):
+                self.recent_task_results = []
+            self.recent_task_results.append(result)
             
-            logging.info(f"{self.agent_id} completed coding task: {task.description[:50]}...")
+            # Keep only the most recent 10 results
+            if len(self.recent_task_results) > 10:
+                self.recent_task_results = self.recent_task_results[-10:]
+            
+            # Remove from task list
+            if task in self.current_tasks:
+                self.current_tasks.remove(task)
+            
+            logging.info(f"{self.agent_id} completed coding task")
             
         except Exception as e:
             logging.error(f"{self.agent_id} task execution failed: {e}")
             task.status = TaskStatus.FAILED
-            task.result = f"Error: {e}"
+            task.result = {"error": str(e), "created_files": []}
 
 
 class FrontendCodingAgent(CodingAgent):
